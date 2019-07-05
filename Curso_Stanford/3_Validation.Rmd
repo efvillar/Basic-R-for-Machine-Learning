@@ -1,0 +1,23 @@
+---
+title: "3_Validation"
+author: "Edwin Villarraga"
+date: "2 de julio de 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Validaciones
+
+```{r}
+require(ISLR)
+require(boot)
+plot(mpg~horsepower, data=Auto)
+```
+
+```{r}
+glm.fit=glm(mpg~horsepower, data=Auto)
+cv.glm(Auto, glm.fit)$delta #cross validation
+```
