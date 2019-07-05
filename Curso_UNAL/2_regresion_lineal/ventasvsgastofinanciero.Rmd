@@ -1,0 +1,157 @@
+---
+title: "Ilustración regresión lineal: ventas vs gasto financiero"
+author: "Juan David Ospina Arango <br> Técnicas en Aprendizaje Estadístico <br> Universidad Nacional de Colombia - Sede Medellín"
+date: "29 de junio de 2019"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Introducción
+En este documento se ilustran algunos aspectos de un proceso de regresión lineal. La aplicación tiene que ver con predecir el gasto financiero de las empresas a partir de su nivel de ventas.
+
+# Lectura de los datos
+La información que se utilizará son los reportes de ventas y de gasto financiero de las empresas para un año en particular. Esta información es pública y puede ser descargada desde el sitio web de la [Superintendencia de Sociedades](https://www.supersociedades.gov.co/delegatura_aec/estudios_financieros/Paginas/sirem.aspx):
+
+```{r}
+ventas_vs_gastofinanciero<-read.csv("ventas_vs_gastofinanciero.csv",sep=";",
+                                    encoding="UTF-8")
+```
+
+¿Cuantos subsectores hay en la base de datos?
+
+```{r}
+length(unique(ventas_vs_gastofinanciero$SUBSECTOR))
+```
+¿Cuántos clientes tiene cada sector?
+```{r}
+table(ventas_vs_gastofinanciero$SUBSECTOR)
+```
+Esto podría verse mejor como un dataframe:
+```{r}
+sectores<-as.data.frame(table(ventas_vs_gastofinanciero$SUBSECTOR))
+head(sectores)
+```
+
+Ahora cambiemos los nombres de las variables para mejorar la comprensión del conjunto de datos:
+```{r}
+names(sectores)<-c("subsector","cant_clientes")
+head(sectores)
+```
+
+
+Ahora veamos los subsectores con más clientes:
+```{r}
+sectores[order(sectores$cant_clientes,decreasing=TRUE),]
+```
+
+Vamos a escoger dos subsectores y a visualizar la relación entre sus ventas y el gasto financiero:
+```{r}
+ids<-ventas_vs_gastofinanciero$SUBSECTOR %in% c("EDIFICACIONES","COMERCIO DE VARIEDADES Y VESTUARIO")
+datos_dos_subsectores<-ventas_vs_gastofinanciero[ids,]
+```
+
+Ahora grafiquemos los datos con la función *plot()*:
+```{r}
+plot(datos_dos_subsectores$VENTAS,datos_dos_subsectores$GASTOFINANCIERO)
+grid()
+```
+
+Esta gráfica tiene problemas de presentación. El siguiente código muesta algunas ideas para mejorarla:
+```{r}
+plot(datos_dos_subsectores$VENTAS/10e8,datos_dos_subsectores$GASTOFINANCIERO/10e8,
+     xlab="Ventas (COP, miles de millones)",ylab = "Gasto financiero (COP, miles de millones)",main="Ventas vs gasto financiero (2015)",
+     las=1)
+grid()
+```
+
+Veamos que pasa cuando tenemos las ventas en escala logarítmica:
+```{r}
+plot(datos_dos_subsectores$VENTAS/10e8,datos_dos_subsectores$GASTOFINANCIERO/10e8,
+     xlab="Ventas (log, COP, miles de millones)",ylab = "Gasto financiero (COP, miles de millones)",main="Ventas vs gasto financiero (2015)",
+     las=1,log="x")
+grid()
+```
+
+
+Veamos que pasa cuando tenemos el gasto financiero en escala logarítmica:
+```{r}
+plot(datos_dos_subsectores$VENTAS/10e8,datos_dos_subsectores$GASTOFINANCIERO/10e8,
+     xlab="Ventas (COP, miles de millones)",ylab = "Gasto financiero (log, COP, miles de millones)",main="Ventas vs gasto financiero (2015)",
+     las=1,log="y")
+grid()
+```
+
+
+Veamos que pasa cuando tenemos ambos,las ventas y el gasto financiero, en escala logarítmica:
+```{r}
+plot(datos_dos_subsectores$VENTAS/10e8,datos_dos_subsectores$GASTOFINANCIERO/10e8,
+     xlab="Ventas (log, COP, miles de millones)",ylab = "Gasto financiero (log, COP, miles de millones)",main="Ventas vs gasto financiero (2015)",
+     las=1,log="xy")
+grid()
+```
+
+Aunque ahora pareciera haber una relación lineal, ésta podría no ser la misma para los dos subsectores en cuestión.
+```{r}
+colores<-ifelse(datos_dos_subsectores$SUBSECTOR=="EDIFICACIONES",1,2)
+plot(datos_dos_subsectores$VENTAS/10e8,datos_dos_subsectores$GASTOFINANCIERO/10e8,
+     xlab="Ventas (log, COP, miles de millones)",ylab = "Gasto financiero (log, COP, miles de millones)",main="Ventas vs gasto financiero (2015)",
+     las=1,log="xy",col=colores)
+grid()
+legend("bottomright",legend=c("EDIFICACIONES","COMERCIO VyV"),col=c(1,2),pch=1)
+```
+
+
+Probemos un modelo lineal para el sector de edificaciones. Para ello transformemos los datos primero:
+
+```{r}
+datos_dos_subsectores_trs<-datos_dos_subsectores
+datos_dos_subsectores_trs$VENTAS<-log(datos_dos_subsectores_trs$VENTAS/10e8)
+datos_dos_subsectores_trs$GASTOFINANCIERO<-log(datos_dos_subsectores_trs$GASTOFINANCIERO/10e8)
+```
+
+Ahora ajustemos un modelo para edificaciones:
+
+```{r}
+modelo_ed_1<-lm(GASTOFINANCIERO~VENTAS,data=datos_dos_subsectores_trs,
+                subset=(SUBSECTOR=="EDIFICACIONES"))
+summary(modelo_ed_1)
+```
+
+Veamos el ajuste del modelo en una gráfica:
+```{r}
+plot(datos_dos_subsectores_trs$VENTAS,datos_dos_subsectores_trs$GASTOFINANCIERO,
+     xlab="Ventas (log, COP, miles de millones)",ylab = "Gasto financiero (log, COP, miles de millones)",main="Ventas vs gasto financiero (2015), Edificaciones",
+     las=1)
+abline(modelo_ed_1,col="red",lwd=2)
+grid()
+legend("bottomright",legend = c("Observados","Ajuste lineal"),pch=c(1,NA),lty=c(NA,1),
+       col=c(1,2),lwd=c(1,2))
+
+```
+
+
+
+
+
+
+
+# Diagnóstico: tarea
+Se recomienda investigar y entender el diagnóstico del modelo de regresión lineal para comprender y utilizar las siguientes gráficas.
+```{r}
+par(mfrow=c(2,2))
+plot(modelo_ed_1)
+```
+
+# Actividades sugeridas
+Se sugieren las siguientes actividades para afianzar las capacidades:
+
+1. Para el modelo para edificaciones retirar los clientes que más se alejan del modelo, reestimar el modelo y observar el cambio en el error residual y en el $R^2$. ¿Para cuántos clientes funciona el modelo? ¿Qué porcentaje de los clientes representan aquellos para los que no funciona el modelo?
+2. Estimar un modelo para variedades y vestuario. ¿Qué tan similar es este modelo al de edificaciones?
+3. Estime un modelo conjunto para edificaciones y para variedades y vestuario. ¿Qué tan similar es éste a los modelos individuales? ¿Es mejor estimar un modelo conjunto o dos individuales?
+4. Predicciones: ¿cuál es el gasto financiero esperado para una empresa del sector de edificaciones con unas ventas de COP $400 mil millones? ¿Cuál es el intervalo de confianza para esta estimación? ¿Cuál sería el valor esperado y el intervalo de confianza para una empresa del sector de variedades y vestuarios con el mismo nivel de ventas?
+
+
+# FIN
+
+

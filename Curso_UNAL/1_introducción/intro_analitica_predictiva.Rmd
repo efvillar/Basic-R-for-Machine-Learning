@@ -1,0 +1,704 @@
+---
+title: "Introduccción a la analítica predictiva<br> Vehículos registrados en el RUNT"
+author: "Juan David Ospina Arango <br> Especialización en Analítica"
+date: "28 de junio de 2019"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Analítica Predictiva
+En este documento se aplican varios modelos de aprendizaje de máquina al problema de predecir el número de vehículos registrados diariamente en Colombia en el Registro Único de Tránsito (RUNT). 
+
+Los datos son obtenidos del RUNT a través de la compra de información y se muestran aquí solo con fines educativos.
+
+
+
+## Hipótesis de trabajo
+El número de unidades registradas en el RUNT está relacionada con la actividad comercial y de las oficinas de tránsito, que operan mayoritariamente entre lunes y viernes. Además, las fechas especiales pueden tener un impacto.
+
+# Lectura de los datos
+La base de datos original tiene solo dos campos: fecha y unidades registradas en el RUNT en esa fecha. La base de datos se aumenta utilizando variables indicadoras para los días de la semana, los meses del año y las fechas especiales. Esta es la base que se lee a continuación.
+
+## Lectura de los datos
+Antes de leer los datos de un archivo externo, y si estos no ocupan un volumen importante, es conveniente visualizarlos para saber qué tipos de datos se tienen y cómo leerlos mejor. 
+
+En este caso se leerán los datos con el paquete *readr* y la función *read_delim()*:
+
+```{r message=FALSE}
+library(readr)
+datos_ventas_autos <- read_delim("carros/datos_ventas_autos.csv", 
+     ";", escape_double = FALSE, trim_ws = TRUE)
+head(datos_ventas_autos) # muestra una vista de los primeros 10 registros
+```
+La función *header()* muestra una vista de los primeros 6 registros.
+
+# Análisis descriptivo
+El análisis descriptivo busca visualizar comportamientos de los datos como dispersión, simetría o asimetría, relaciones entre variables, etc., mediante el cálculo de unas variables de resumen, llamadas estadísticos, y la representación gráfica de los datos.
+
+Para guiar el análisis de la información resulta útil representar gráficamente los datos o una muestra de los mismos. En este caso, como la variable a predecir es el número de unidades registradas diariamente en el RUNT y esta variable depende del tiempo, se desea representarla como una serie temporal.
+
+Sin embargo, la variable *Fecha* es una variable tipo caracter:
+
+```{r}
+class(datos_ventas_autos$Fecha)
+```
+
+Para representar el número de unidades registradas en el RUNT en el tiempo es útil cambiar el tipo de variable a caracter. El siguiente código hace esto usando la función *as.Date()*:
+
+```{r}
+datos_ventas_autos$Fecha<-as.Date(datos_ventas_autos$Fecha,"%d/%m/%Y")
+```
+
+Ahora se procede a graficar los datos para darse una idea de algunos comportamientos:
+
+```{r message=FALSE}
+library(plotly)
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~Fecha,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         line=list(width=1,color='rgb(205, 12, 24)'))%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Día"),
+         yaxis=list(title="Unidades"))
+```
+
+Ahora veamos el comportamiento anual. Creemos la columna "year" (año):
+
+```{r}
+datos_ventas_autos$year<-format(datos_ventas_autos$Fecha,"%Y")
+```
+
+```{r message=FALSE}
+library(plotly)
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~Fecha,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         split = ~year,
+         line=list(width=1))%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Día"),
+         yaxis=list(title="Unidades"))
+```
+
+Otra forma de analizar los resultados por año es con la función *aggregate()*. Utilicemos esta función para obtener el promedio diario para cada año de registros de vehículos:
+
+```{r}
+aggregate(und~year,data=datos_ventas_autos,FUN=mean)
+```
+
+Ahora obtengamos el promedio diario para cada mes y cada año:
+
+```{r}
+datos_ventas_autos$mes<-strftime(datos_ventas_autos$Fecha, format = "%B")
+datos_ventas_autos$mes<-factor(datos_ventas_autos$mes,levels = month.name)
+aggregate(und~year*mes,data=datos_ventas_autos,FUN=mean)
+```
+
+Veamos este promedio representado en un gráfico:
+
+```{r}
+aggregate(und~year*mes,data=datos_ventas_autos,FUN=mean)%>%
+  plot_ly(x = ~mes,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         split = ~year,
+         line=list(width=1))%>%
+  layout(title='Promedio diario mensual de registros el en RUNT',
+         xaxis=list(title="Día"),
+         yaxis=list(title="Unidades"))
+```
+
+Ahora obtengamos el día del año para comparar todos los años:
+
+```{r}
+datos_ventas_autos$diaano<-strftime(datos_ventas_autos$Fecha, format = "%j")
+```
+
+Obtengamos la gráfica del registro de vehículos diarios para cada año:
+
+```{r message=FALSE}
+library(plotly)
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~diaano,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         split = ~year,
+         line=list(width=1))%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Día"),
+         yaxis=list(title="Unidades"))
+```
+Ahora veamos el comportamiento mensual. Primero se extrae la información del mes y se expresa como una variable categórica ordenada:
+
+```{r}
+datos_ventas_autos$diames<-format(datos_ventas_autos$Fecha,"%d")
+```
+
+La siguiente función "automatiza" los pasos para generar un gráfico para cada mes:
+
+```{r}
+grafico<-function(month,data,sl=FALSE){
+  plot_ly (data=subset(data,subset = (Fecha<="2017-12-31" & mes==month)),
+         x = ~diames,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         split = ~year,
+         line=list(width=1),
+         legendgroup=~year,
+         showlegend = sl)%>%
+    layout(title='Registros el en RUNT',
+         xaxis=list(title="Día"),
+         yaxis=list(title="Unidades"))->p
+  return(p)
+}
+```
+
+Apliquemos esta función a todos los meses del año:
+
+```{r}
+meses<-unique(datos_ventas_autos$mes)
+gr1<-grafico(meses[1],data=datos_ventas_autos,sl=FALSE)
+gr2<-grafico(meses[2],data=datos_ventas_autos,sl=FALSE)
+gr3<-grafico(meses[3],data=datos_ventas_autos,sl=FALSE)
+gr4<-grafico(meses[4],data=datos_ventas_autos,sl=FALSE)
+gr5<-grafico(meses[5],data=datos_ventas_autos,sl=FALSE)
+gr6<-grafico(meses[6],data=datos_ventas_autos,sl=FALSE)
+gr7<-grafico(meses[7],data=datos_ventas_autos,sl=FALSE)
+gr8<-grafico(meses[8],data=datos_ventas_autos,sl=FALSE)
+gr9<-grafico(meses[9],data=datos_ventas_autos,sl=FALSE)
+gr10<-grafico(meses[10],data=datos_ventas_autos,sl=FALSE)
+gr11<-grafico(meses[11],data=datos_ventas_autos,sl=FALSE)
+gr12<-grafico(meses[12],data=datos_ventas_autos,sl=TRUE)
+subplot(gr1,gr2,gr3,gr4,gr5,gr6,gr7,gr8,gr9,gr10,gr11,gr12,nrows = 4,shareX = TRUE,
+        shareY = TRUE,which_layout=1)
+```
+
+
+Una alternativa, más simple pero con menos interacción, para la gráfica anterior se obtiene usando la función *xyplot()*:
+
+```{r}
+library(lattice)
+xyplot(und~diames|mes,groups = year,data=datos_ventas_autos,
+       subset = (Fecha<="2017-12-31"),type=c("l","g"),
+       auto.key = list(lines = TRUE, space = "bottom",columns=7,title="Año",cex=0.5),
+       layout=c(3,4))
+```
+
+
+
+Ahora utilicemos el diagrama de caja y bigotes para explorar relaciones:
+
+```{r}
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~year,
+         y = ~und,
+         type = "box")%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Año"),
+         yaxis=list(title="Unidades"))
+```
+
+
+Ahora, hacemos algo similar a lo anterior para los meses del año y los días de la semana:
+
+```{r}
+datos_ventas_autos$dia_semana<-weekdays(datos_ventas_autos$Fecha)
+datos_ventas_autos$dia_semana<-ordered(datos_ventas_autos$dia_semana,levels=c( "Tuesday", "Wednesday", "Thursday", 
+"Friday", "Saturday", "Sunday","Monday"))
+```
+
+Veamos el diagrama de caja y bigotes para cada mes:
+
+```{r}
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~mes,
+         y = ~und,
+         type = "box")%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Mes"),
+         yaxis=list(title="Unidades"))
+```
+
+Veamos el diagrama de caja y bigotes para cada día de la semana:
+
+```{r}
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~dia_semana,
+         y = ~und,
+         type = "box")%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Día de la semana"),
+         yaxis=list(title="Unidades"))
+```
+
+
+¿Cuál será el efecto de los días feriados?
+
+```{r}
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~Feriado,
+         y = ~und,
+         type = "box")%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Día feriado (1 es Si)"),
+         yaxis=list(title="Unidades"))
+```
+
+¿Cuál será el efecto del día del amor y la amistad?
+
+```{r}
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~AmoryAmistad,
+         y = ~und,
+         type = "box")%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Amor y amistad (1 es Si)"),
+         yaxis=list(title="Unidades"))
+```
+
+
+¿Cuál será el efecto de la Semana Santa?
+
+```{r}
+plot_ly (data=subset(datos_ventas_autos,subset = (Fecha<="2017-12-31")),
+         x = ~`Semana Santa`,
+         y = ~und,
+         type = "box")%>%
+  layout(title='Registros el en RUNT',
+         xaxis=list(title="Semana santa (1 es Si)"),
+         yaxis=list(title="Unidades"))
+```
+
+
+
+# Modelamiento
+Se ajustarán modelos con la información disponible hasta el 31 de diciembre de 2016 y se utilizará el año 2017 para validar el modelo:
+
+## Regresión lineal:
+
+Utilizamos la función *lm()*:
+
+```{r}
+modelo_lm<-lm(und~dia_semana+mes+Feriado,data=datos_ventas_autos,subset = (Fecha<="2016-12-31"))
+```
+
+Veamos el resultado:
+
+```{r}
+summary(modelo_lm)
+```
+
+
+### Cálculo del $R^2$ manualmente:
+
+```{r}
+y0_tr<-mean(datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"])
+r0_tr<-datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"]-y0_tr
+R0_tr<-mean(r0_tr^2)
+y_pred_tr_lm<-predict(modelo_lm)
+r_tr_lm<-datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"]-y_pred_tr_lm
+R_tr_lm<-mean(r_tr_lm^2)
+R2_lm<-1-R_tr_lm/R0_tr
+print(R2_lm)
+```
+
+
+# Ajuste de un modelo Poisson:
+
+```{r}
+modelo_glm<-glm(und~dia_semana+mes+Feriado,data=datos_ventas_autos,subset = (Fecha<="2016-12-31"),family = "poisson")
+```
+
+Veamos el resultado:
+
+```{r}
+summary(modelo_glm)
+```
+
+
+### Cálculo del Pseudo $R^2$ para el modelo Poisson:
+
+Obtengamos el (pseudo) $R^2$ para el modelo Poisson:
+```{r}
+y_pred_tr_glm<-predict(modelo_glm,type="response")
+r_tr_glm<-datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"]-y_pred_tr_glm
+R_tr_glm<-mean(r_tr_glm^2)
+R2_tr_glm<-1-R_tr_glm/R0_tr
+```
+
+Veamos el resultado:
+```{r}
+print(R2_tr_glm)
+```
+
+## Análisis de predichos versus observados
+
+Creación de un dataframe para usar con *plotly*:
+
+```{r}
+resultados_lm_glm<-data.frame(Fecha=  datos_ventas_autos$Fecha[datos_ventas_autos$Fecha<="2016-12-31"],                                    und=datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"],
+                              pred_lm=y_pred_tr_lm,
+                              pred_glm=y_pred_tr_glm,
+                            res_lm=r_tr_lm,
+                            res_glm=r_tr_glm)
+```
+
+### Predichos y observados:
+
+```{r}
+plot_ly (data=resultados_lm_glm,
+         x = ~Fecha,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         name='Real',
+         line=list(width=1,color='rgb(205, 12, 24)'))%>%
+  add_trace(y= ~pred_lm,
+            name='Modelo lineal general',
+            line=list(width=1,color='rgb(22, 96, 167)'))%>%
+  add_trace(y= ~pred_glm,
+            name='Modelo Poisson',
+            line=list(width=1,color='rgb(255, 51, 0)'))%>%
+  layout(title='Registros RUNT',
+         xaxis=list(title="Fecha"),
+         yaxis=list(title="Unidades"),
+         legend = list(x = 0.75, y = 0.9))
+```
+
+### Predichos vs observados:
+
+```{r}
+plot_ly (data=resultados_lm_glm,
+         x = ~und,
+         y = ~pred_lm,
+         text = ~Fecha,
+         type = "scatter" ,mode="markers",
+         name='Modelo lineal general',
+         marker=list(size=3,color='rgb(22, 96, 167)'))%>%
+  add_trace(y= ~pred_glm,
+            text = ~Fecha,
+            name='Modelo lineal Poisson',
+            marker=list(size=3,color='rgb(255, 51, 0)'))%>%
+  add_trace(x=c(-500:3500),y=c(-500:3500),
+            mode="lines",text=rep(NA,4001),
+            name="Identidad")%>%
+  layout(title='Registros RUNT',
+         xaxis=list(title="Observados"),
+         yaxis=list(title="Predichos"),
+         legend = list(x = 0.75, y = 0.9))
+```
+
+### Residuales vs observados:
+
+
+```{r}
+plot_ly (data=resultados_lm_glm,
+         x = ~und,
+         y = ~res_lm,
+         type = "scatter" ,mode="markers",
+         name='Modelo lineal general',
+         text = ~Fecha,
+         marker=list(size=3,color='rgb(22, 96, 167)'))%>%
+  add_trace(y= ~res_glm,
+            name='Modelo Poisson',
+            text = ~Fecha,
+            marker=list(size=3,color='rgb(255, 51, 0)'))%>%
+  layout(title='Registros RUNT',
+         xaxis=list(title="Observados"),
+         yaxis=list(title="Residuales"),
+         legend = list(x = 0.75, y = 0.9))
+```
+
+
+## Predicción del 2017
+
+#### Cálculo de las predicciones:
+```{r}
+datos_val<-subset(datos_ventas_autos,subset=(Fecha>="2017-01-01" & Fecha<="2017-12-31"))
+y_pred_vl_lm<-predict(modelo_lm,newdata = datos_val)
+y_pred_vl_glm<-predict(modelo_glm,type="response",newdata = datos_val)
+r_vl_lm<-datos_val$und-y_pred_vl_lm
+r_vl_glm<-datos_val$und-y_pred_vl_glm
+r0_vl<-datos_val$und-y0_tr
+```
+
+#### Cálculo de los $R^2$ de predicción:
+```{r}
+R_vl_lm<-mean(r_vl_lm^2)
+R_vl_glm<-mean(r_vl_glm^2)
+R0_vl<-mean(r0_vl^2)
+R2_vl_lm<-1-R_vl_lm/R0_vl
+R2_vl_glm<-1-R_vl_glm/R0_vl
+```
+
+```{r}
+print(R2_vl_lm)
+print(R2_vl_glm)
+```
+
+## Gráfico de los residuales en validación:
+```{r}
+resultados_lm_glm_val<-data.frame(Fecha=datos_val$Fecha,                            und=datos_val$und,
+                              pred_lm=y_pred_vl_lm,
+                              pred_glm=y_pred_vl_glm,
+                            res_lm=r_vl_lm,
+                            res_glm=r_vl_glm)
+```
+
+```{r}
+plot_ly (data=resultados_lm_glm_val,
+         x = ~Fecha,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         name='Real',
+         line=list(width=1,color='rgb(205, 12, 24)'))%>%
+  add_trace(y= ~pred_lm,
+            name='Modelo lineal general',
+            line=list(width=1,color='rgb(22, 96, 167)'))%>%
+  add_trace(y= ~pred_glm,
+            name='Modelo Poisson',
+            line=list(width=1,color='rgb(255, 51, 0)'))%>%
+  layout(title='Registros RUNT (Validación)',
+         xaxis=list(title="Fecha"),
+         yaxis=list(title="Unidades"),
+         legend = list(x = 0.75, y = 0.9))
+```
+
+
+## ¿Qué es lo que el modelo no ha visto?
+
+### Días hábiles
+
+Creación de un vector que indica si la fecha es el último día hábil del mes. Los días hábiles son aquellos que no sean ni sábado ni domingo ni festivo:
+
+```{r}
+dias_habiles<-ifelse(!(datos_ventas_autos$dia_semana %in% c("sabaddo","domingo")) | 
+                       datos_ventas_autos$Feriado==0,1,0)
+con_mod<-datos_ventas_autos$Consecutivo*dias_habiles
+ultimo_dia_habil<-aggregate(con_mod~datos_ventas_autos$year*datos_ventas_autos$mes,FUN=max)
+datos_ventas_autos$ultimo_dia_habil<-(datos_ventas_autos$Consecutivo %in% ultimo_dia_habil$con_mod)*1
+
+```
+
+Ahora incluyamos esta variable en el modelo:
+
+```{r}
+modelo_glm<-glm(und~dia_semana+mes+Feriado+ultimo_dia_habil,
+                data=datos_ventas_autos,
+                subset = (Fecha<="2016-12-31"),
+                family = "poisson")
+summary(modelo_glm)
+```
+Veamos cómo cambia el $R^2$:
+
+```{r}
+y_pred_tr_glm<-predict(modelo_glm,type="response")
+r_tr_glm<-datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"]-y_pred_tr_glm
+R_tr_glm<-mean(r_tr_glm^2)
+```
+
+```{r}
+R2_tr_glm<-1-R_tr_glm/R0_tr
+print(R2_tr_glm)
+```
+
+Y en validación:
+
+```{r}
+datos_val<-subset(datos_ventas_autos,subset=(Fecha>="2017-01-01" & Fecha<="2017-12-31"))
+y_pred_vl_glm<-predict(modelo_glm,type="response",newdata = datos_val)
+r_vl_glm<-datos_val$und-y_pred_vl_glm
+R_vl_glm<-mean(r_vl_glm^2)
+R2_vl_glm<-1-R_vl_glm/R0_vl
+print(R2_vl_glm)
+```
+
+
+
+# Con árboles de decisión
+
+## Entrenamiento del árbol
+```{r}
+library(rpart)
+modelo_rpart<-rpart(und~dia_semana+mes+Feriado+ultimo_dia_habil,data=datos_ventas_autos,subset = (Fecha<="2016-12-31"))
+```
+
+## Visualización del resultado
+
+Con el comando *summary()*:
+
+```{r}
+print(modelo_rpart)
+```
+
+Con la función *rpart.plot()*:
+
+```{r}
+library(rpart.plot)
+rpart.plot(modelo_rpart,tweak = 1.9)
+```
+
+Visualización de la importancia de las variables:
+
+```{r}
+summary(modelo_rpart)
+```
+
+## Cálculo de los $R^2$ de predicción y entrenamiento para el árbol:
+
+```{r}
+y_pred_tr_rpart<-predict(modelo_rpart)
+y_pred_vl_rpart<-predict(modelo_rpart,newdata = datos_val)
+r_tr_rpart<-datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"]-y_pred_tr_rpart
+r_vl_rpart<-datos_val$und-y_pred_vl_rpart
+R_tr_rpart<-mean(r_tr_rpart^2)
+R_vl_rpart<-mean(r_vl_rpart^2)
+R2_tr_rpart<-1-R_tr_rpart/R0_tr
+R2_vl_rpart<-1-R_vl_rpart/R0_vl
+```
+
+```{r}
+print(R2_tr_rpart)
+print(R2_vl_rpart)
+```
+
+
+
+# Con bosques aleatorios
+
+## Ajuste del bosque:
+
+```{r message=FALSE, warning=FALSE}
+library(randomForest)
+modelo_rf<-randomForest(und~dia_semana+mes+Feriado+ultimo_dia_habil,data=datos_ventas_autos,subset = (Fecha<="2016-12-31"),importance=FALSE,ntree=500,mtry=2)
+```
+
+## Resultado del bosque
+
+Veamos el error en función del número de árboles:
+
+```{r}
+plot(modelo_rf)
+```
+
+Ahora veamos el desempeño del árbol en el entrenamiento:
+
+```{r}
+print(modelo_rf)
+```
+
+
+## Importancia de las variables
+
+```{r}
+varImpPlot(modelo_rf)
+```
+
+## Cálculo de los $R^2$ de predicción y entrenamiento para el bosque:
+
+```{r}
+y_pred_tr_rf<-predict(modelo_rf)
+y_pred_vl_rf<-predict(modelo_rf,newdata = datos_val)
+r_tr_rf<-datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"]-y_pred_tr_rf
+r_vl_rf<-datos_val$und-y_pred_vl_rf
+R_tr_rf<-mean(r_tr_rf^2)
+R_vl_rf<-mean(r_vl_rf^2)
+R2_tr_rf<-1-R_tr_rf/R0_tr
+R2_vl_rf<-1-R_vl_rf/R0_vl
+```
+
+```{r}
+print(R2_tr_rf)
+print(R2_vl_rf)
+```
+
+# Comparación de todos los modelos
+
+## Comparación en el entrenamiento
+```{r}
+comparacion_tr<-data.frame(Fecha=datos_ventas_autos$Fecha[datos_ventas_autos$Fecha<="2016-12-31"],
+                           und=datos_ventas_autos$und[datos_ventas_autos$Fecha<="2016-12-31"],
+                           glm=y_pred_tr_glm,
+                           arbol=y_pred_tr_rpart,
+                           bosque=y_pred_tr_rf)
+```
+
+### Gráfica de todas las series en entrenamiento:
+
+```{r}
+plot_ly (data=comparacion_tr,
+         x = ~Fecha,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         name='Real',
+         line=list(width=1,color='rgb(205, 12, 24)'))%>%
+  add_trace(y= ~glm,
+            name='Modelo Poisson',
+            line=list(width=1,color='rgb(22, 96, 167)'))%>%
+  add_trace(y= ~arbol,
+            name='Árbol',
+            line=list(width=1,color='rgb(255, 51, 0)'))%>%
+    add_trace(y= ~bosque,
+            name='Bosque',
+            line=list(width=1,color='rgb(255, 51, 153)'))%>%
+  layout(title='Registros RUNT (Entrenamiento)',
+         xaxis=list(title="Fecha"),
+         yaxis=list(title="Unidades"),
+         legend = list(x = 0.75, y = 0.9))
+```
+
+## Comparación en la validación
+
+```{r}
+comparacion_vl<-data.frame(Fecha=datos_val$Fecha,
+                           und=datos_val$und,
+                           glm=y_pred_vl_glm,
+                           arbol=y_pred_vl_rpart,
+                           bosque=y_pred_vl_rf)
+```
+
+### Gráfica de todas las series en entrenamiento:
+
+```{r}
+plot_ly (data=comparacion_vl,
+         x = ~Fecha,
+         y = ~und,
+         type = "scatter" ,mode = "lines",
+         name='Real',
+         line=list(width=1,color='rgb(205, 12, 24)'))%>%
+  add_trace(y= ~glm,
+            name='Modelo Poisson',
+            line=list(width=1,color='rgb(22, 96, 167)'))%>%
+  add_trace(y= ~arbol,
+            name='Árbol',
+            line=list(width=1,color='rgb(255, 51, 0)'))%>%
+    add_trace(y= ~bosque,
+            name='Bosque',
+            line=list(width=1,color='rgb(255, 51, 153)'))%>%
+  layout(title='Registros RUNT (Validación)',
+         xaxis=list(title="Fecha"),
+         yaxis=list(title="Unidades"),
+         legend = list(x = 0.75, y = 0.9))
+```
+
+
+
+# Comparación con los (pseudo) $R^2$:
+
+```{r}
+Entrenamiento<-c(R2_lm,R2_tr_glm,R2_tr_rpart,R2_tr_rf)
+Validacion<-c(R2_vl_lm,R2_vl_glm,R2_vl_rpart,R2_vl_rf)
+nombres<-c("lm","glm","árbol","bosque")
+ResultadosR2<-data.frame(Entrenamiento=Entrenamiento,Validacion=Validacion)
+rownames(ResultadosR2)<-nombres
+```
+
+```{r}
+ResultadosR2
+```
+
+# FIN
+
+
