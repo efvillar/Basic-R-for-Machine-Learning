@@ -92,8 +92,8 @@ aggregate(und~year,data=datos_ventas_autos,FUN=mean)
 Ahora obtengamos el promedio diario para cada mes y cada año:
 
 ```{r}
-datos_ventas_autos$mes<-strftime(datos_ventas_autos$Fecha, format = "%B")
-datos_ventas_autos$mes<-factor(datos_ventas_autos$mes,levels = month.name)
+datos_ventas_autos$mes<-strftime(datos_ventas_autos$Fecha, format = "%m")
+datos_ventas_autos$mes<-factor(datos_ventas_autos$mes) #,levels = month.name
 aggregate(und~year*mes,data=datos_ventas_autos,FUN=mean)
 ```
 
@@ -107,14 +107,14 @@ aggregate(und~year*mes,data=datos_ventas_autos,FUN=mean)%>%
          split = ~year,
          line=list(width=1))%>%
   layout(title='Promedio diario mensual de registros el en RUNT',
-         xaxis=list(title="Día"),
+         xaxis=list(title="Mes"),
          yaxis=list(title="Unidades"))
 ```
 
 Ahora obtengamos el día del año para comparar todos los años:
 
 ```{r}
-datos_ventas_autos$diaano<-strftime(datos_ventas_autos$Fecha, format = "%j")
+datos_ventas_autos$diaano<-strftime(datos_ventas_autos$Fecha, format = "%j")  #j se usa para dia del año
 ```
 
 Obtengamos la gráfica del registro de vehículos diarios para cada año:
@@ -206,8 +206,8 @@ Ahora, hacemos algo similar a lo anterior para los meses del año y los días de
 
 ```{r}
 datos_ventas_autos$dia_semana<-weekdays(datos_ventas_autos$Fecha)
-datos_ventas_autos$dia_semana<-ordered(datos_ventas_autos$dia_semana,levels=c( "Tuesday", "Wednesday", "Thursday", 
-"Friday", "Saturday", "Sunday","Monday"))
+datos_ventas_autos$dia_semana<-ordered(datos_ventas_autos$dia_semana,levels=c( "lunes", "martes", "miércoles", 
+"jueves", "viernes", "sábado","domingo"))
 ```
 
 Veamos el diagrama de caja y bigotes para cada mes:
@@ -474,7 +474,7 @@ plot_ly (data=resultados_lm_glm_val,
 Creación de un vector que indica si la fecha es el último día hábil del mes. Los días hábiles son aquellos que no sean ni sábado ni domingo ni festivo:
 
 ```{r}
-dias_habiles<-ifelse(!(datos_ventas_autos$dia_semana %in% c("sabaddo","domingo")) | 
+dias_habiles<-ifelse(!(datos_ventas_autos$dia_semana %in% c("sabado","domingo")) | 
                        datos_ventas_autos$Feriado==0,1,0)
 con_mod<-datos_ventas_autos$Consecutivo*dias_habiles
 ultimo_dia_habil<-aggregate(con_mod~datos_ventas_autos$year*datos_ventas_autos$mes,FUN=max)
