@@ -1,0 +1,237 @@
+---
+title: "Clase k-nn"
+author: "Mejorado por EFVO"
+date: "5 de julio de 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introducción
+
+
+Los datos fueron descargados del  [sitio web del texto guía](http://www-bcf.usc.edu/~gareth/ISL/). Se cargan así con el siguiente código:
+
+```{r}
+datos_advertising<-read.csv("Advertising.csv")
+datos_advertising<-datos_advertising[,-1] # Se elimina la primera columna de índices
+```
+
+```{r}
+head(datos_advertising)
+```
+
+
+La función **pairs()** muestra los gráficos de dispersión por pares:
+
+```{r}
+pairs(datos_advertising)
+```
+
+Este ejemplo en particular tiene un elemento que facilita el análisis: las variables explicativas están todas en las mismas unidades.
+
+con la función str se pueden tener datos sobre el numero de observaciones y el tipo de datos
+```{r}
+str(datos_advertising)
+```
+
+
+Se puede usar la libreria skimr para tener una mayor descripción de las variables
+```{r}
+library(skimr)
+skimr::skim(datos_advertising)
+```
+
+
+
+```{r}
+library(caret)
+featurePlot(x = datos_advertising[, 1:3], 
+            y = datos_advertising$sales, 
+            plot = "pairs",
+            ## Add a key at the top
+            auto.key = list(columns = 8))
+
+```
+```{r}
+head(iris)
+```
+
+Si hubiese alguna variable categorica se podría usar esta funcion de caret
+```{r}
+featurePlot(x = iris[, 1:4], 
+            y = iris$Species, 
+            plot = "box", 
+            ## Pass in options to bwplot() 
+            scales = list(y = list(relation="free"),
+                          x = list(rot = 90)),  
+            layout = c(4,1 ), 
+            auto.key = list(columns = 2))
+```
+
+```{r}
+featurePlot(x = iris[, 1:4], 
+            y = iris$Species,
+            plot = "density", 
+            ## Pass in options to xyplot() to 
+            ## make it prettier
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")), 
+            adjust = 1.5, 
+            pch = "|", 
+            layout = c(4, 1), 
+            auto.key = list(columns = 3))
+```
+
+
+
+## Aplicación de la técnica de los vecinos más cercanos
+
+Antes de aplicar la técnica de los vecinos más cercanos se particiona el conjunto de datos en entrenamiento y validación:
+
+```{r}
+set.seed(1) # fija la semilla del generador de números 
+            # aleatorios para obtener resultados reproducibles
+p_tr<-0.7 #porcentaje de datos usados para el entrenamiento
+N_datos<-dim(datos_advertising)[1] # número de registros del conjunto de datos
+n_tr<-round(N_datos*p_tr) # este será el tamaño del conjunto de entrenamiento
+ix_tr<-sample(N_datos,n_tr,replace = FALSE) # genera una muestra de índices
+datos_tr<-datos_advertising[ix_tr,] # conjunto de entrenamiento
+datos_vl<-datos_advertising[-ix_tr,] # conjunto de validación validación
+```
+
+El siguiente código implementa el método de los vecinos más cercanos del paquete **caret**. Luego utiliza la función **predict()** para predecir los datos de entrenamiento y calcula el MSE:
+
+```{r message=FALSE}
+library(caret) # contiene una implementación del método de los kNN
+adv_knn<-knnreg(sales~TV+radio+newspaper,data=datos_tr,k=3) # evalúa el método con k=3
+y_tr_pred<-predict(adv_knn,datos_tr)
+mse_tr<-mean((datos_tr$sales-y_tr_pred)^2) # calcula el mse de entrenamiento
+(mse_tr)
+```
+
+El siguiente código permite calcular el MSE en el conjunto de validación:
+
+```{r}
+y_vl_pred<-predict(adv_knn,datos_vl)
+mse_vl<-mean((datos_vl$sales-y_vl_pred)^2)
+(mse_vl)
+```
+
+## ¿Cuál es el número de vecinos óptimo?
+
+Primero creamos una función que nos permita obtener el MSE como una función del número de vecinos:
+
+```{r}
+mse_k<-function(k,data_tr,data_vl,formula_mod){
+  adv_knn<-knnreg(formula_mod,data=datos_tr,k=k) # entrenamiento del modelo
+  y_tr_pred<-predict(adv_knn,datos_tr) # predicción de los valores de entrenamiento
+  mse_tr<-mean((datos_tr$sales-y_tr_pred)^2) # mse del entrenamiento
+  y_vl_pred<-predict(adv_knn,datos_vl) # predicción de los valores de prueba
+  mse_vl<-mean((datos_vl$sales-y_vl_pred)^2) # mse de validación
+  return(list(mse_tr=mse_tr,mse_vl=mse_vl))
+  }
+```
+
+¿Cómo se utiliza esta función? El siguiente código muestra cómo hacerlo:
+```{r}
+modelo<-formula("sales~TV+radio+newspaper")
+mse_k(k=2,data_tr=data_tr,data_vl = data_vl,formula_mod = modelo)
+```
+Ahora, se aplica la función **mse_k()** a los valores de $k$ entre 1 y el número de datos en el conjunto de entrenamiento:
+
+```{r}
+MSE<-lapply(1:n_tr,mse_k,data_tr=data_tr,data_vl = data_vl,formula_mod = modelo)
+```
+
+El objeto MSE es una lista de listas: cada entrada de MSE es una lista con dos componentes. Para acceder a sus elementos de manera organizada pordemos utilizar la función **`[`** y la función **sapply()** como se muestra: 
+
+```{r}
+mse_tr<-sapply(1:n_tr,function(x,y){`[[`(y,x)$mse_tr},y=MSE)
+mse_vl<-sapply(1:n_tr,function(x,y){`[[`(y,x)$mse_vl},y=MSE)
+```
+
+Ahora ya pueden graficarse los MSE de entrenamiento y validación en función del número de vecinos:
+
+```{r}
+num_vec<-1:n_tr
+plot(num_vec,mse_tr,type="l",col="blue",lwd=2,xlab="k, número de vecinos",
+     ylab="MSE (unidades vendidas)")
+lines(num_vec,mse_vl,col="red",lwd=2)
+grid()
+legend("topleft",col=c("red","blue"),lwd=2,
+       legend=c("Validación","Entrenamiento"))
+```
+
+Hagamos un zoom a lo que pasa cuando $k<10$:
+
+```{r}
+num_vec<-1:n_tr
+plot(num_vec,mse_tr,type="l",col="blue",lwd=2,xlab="k, número de vecinos",
+     ylab="MSE (unidades vendidas)",xlim=c(0,10),ylim=c(0,4))
+lines(num_vec,mse_vl,col="red",lwd=2)
+grid()
+legend("topleft",col=c("red","blue"),lwd=2,
+       legend=c("Validación","Entrenamiento"))
+```
+
+## La libreria caret tambien tiene incorporado un algoritmo para el cálculo del k óptimo
+
+```{r}
+library(caret)
+library(class)
+set.seed(2018)
+```
+
+Se ejecuta con el metodo train de caret, el cual requiere los parametros trControl.  En este caso se utiliza el method=cv indicando que se utilizará el Cross Validation, esto es, dividir los datos de entrenamiento en 10 partes y hacer 10 modelos cada uno excluyendo 1/10 parte de los datos.  Con esto se logra mejorar la estimación del error utilizando el 100% de los datos. En la función train, se realiza el modelo con todas las variables usando los datos datos_tr.  Aunque en este caso no se requiere, se realizó una estandarización de las variables con preProcess=c("center", "scale").
+```{r}
+trcntrl = trainControl(method="cv", number=10)
+caret_knn_fit = caret::train(sales~TV+radio+newspaper, data=datos_tr,
+                      method = "knn", trControl = trcntrl,
+                      preProcess=c("center", "scale"),
+                      tuneLength = 10)
+```
+
+A continuación se observa que se selecciona K=5 pues minimiza el MSE y RMSE.  
+
+```{r}
+caret_knn_fit
+```
+
+Se repite la estimación con el method="repeatedcv" para ver si cambia la decisión de K, pero continua siendo K=5
+
+```{r}
+trcntrl = trainControl(method="repeatedcv", number=10, repeats=4)
+caret_knn_fit = caret::train(sales~TV+radio+newspaper, data=datos_tr,
+                      method = "knn", trControl = trcntrl,
+                      preProcess=c("center", "scale"),
+                      tuneLength = 50)
+caret_knn_fit
+```
+
+Se realiza con predición con los mismos datos de datos_tr para calcular el MSE
+```{r}
+y_tr_pred<-predict(caret_knn_fit,datos_tr)
+mse_tr<-mean((datos_tr$sales-y_tr_pred)^2) # calcula el mse de entrenamiento
+RMSE_tr = sqrt(mse_tr)
+mse_tr
+RMSE_tr
+```
+
+
+Ahora el cálculo del MSE y RMSE con los datos de validación, que en este caso se entiende que son de test pues la validación se hizo con cross validation
+```{r}
+y_vl_pred<-predict(caret_knn_fit,datos_vl)
+mse_vl<-mean((datos_vl$sales - y_vl_pred)^2)
+RMSE_tr = sqrt(mse_vl)
+mse_vl
+RMSE_tr
+```
+
+
+
+
+
+
